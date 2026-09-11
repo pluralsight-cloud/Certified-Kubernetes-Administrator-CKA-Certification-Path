@@ -1,1 +1,6 @@
+# Course name: Certified Kubernetes Administrator (CKA): Network Policies and Traffic Management
+
+**CKA domain:** Services & Networking (20%)
+
+**Exam objectives:** The pod network model and how the CNI plugin wires pod-to-pod connectivity.
 
