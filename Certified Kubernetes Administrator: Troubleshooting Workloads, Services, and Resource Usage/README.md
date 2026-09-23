@@ -4,7 +4,7 @@
 
 Diagnose workload and service failures: container output and logs, service/networking faults, and ephemeral containers plus native sidecars.
 
-Exam objectives: Troubleshoot services and networking
+Exam objective: Troubleshoot services and networking
 
 ---
 
