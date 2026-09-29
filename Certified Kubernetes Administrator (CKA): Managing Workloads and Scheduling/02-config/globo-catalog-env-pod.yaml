@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: globo-catalog-env
+  namespace: globomantics
+  labels:
+    app: globo-catalog-env
+spec:
+  containers:
+    - name: catalog
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 3600"]
+      envFrom:
+        - configMapRef:
+            name: globo-catalog-config
+      env:
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: globo-catalog-secret
+              key: DB_USER
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: globo-catalog-secret
+              key: DB_PASSWORD

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: globo-memory-hog
+  namespace: globomantics
+spec:
+  containers:
+    - name: app
+      image: polinux/stress
+      # Allocates more than the memory limit so the kernel OOM-kills the container.
+      command: ["stress"]
+      args: ["--vm", "1", "--vm-bytes", "200M", "--vm-hang", "1"]
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 100Mi

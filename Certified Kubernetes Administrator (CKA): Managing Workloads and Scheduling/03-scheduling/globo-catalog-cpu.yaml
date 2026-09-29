@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: globo-catalog-cpu
+  namespace: globomantics
+  labels:
+    app: globo-catalog-cpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: globo-catalog-cpu
+  template:
+    metadata:
+      labels:
+        app: globo-catalog-cpu
+    spec:
+      containers:
+        - name: catalog
+          image: registry.k8s.io/hpa-example
+          ports:
+            - containerPort: 80
+          # HPA computes CPU utilization against this request, so it is mandatory.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi

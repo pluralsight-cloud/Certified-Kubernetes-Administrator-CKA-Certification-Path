@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: globo-payment-pinned
+  namespace: globomantics
+  labels:
+    app: globo-payment
+spec:
+  # The toleration clears the taint; the affinity is what forces placement onto globo-worker.
+  tolerations:
+    - key: env
+      operator: Equal
+      value: payment
+      effect: NoSchedule
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: workload
+                operator: In
+                values: ["payment"]
+  containers:
+    - name: payment
+      image: nginx:1.31
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi

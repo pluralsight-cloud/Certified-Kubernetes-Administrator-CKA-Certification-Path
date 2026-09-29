@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: globo-catalog-oversized
+  namespace: globomantics
+spec:
+  containers:
+    - name: catalog
+      image: nginx:1.31
+      # Oversized: exceeds any node's capacity no matter how much CPU
+      # Docker hands the kind nodes, so the pod is guaranteed to stay Pending.
+      resources:
+        requests:
+          cpu: "64"

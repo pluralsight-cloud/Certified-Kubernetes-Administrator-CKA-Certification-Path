@@ -1,0 +1,34 @@
+# OS files
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local kubeconfig exports (never commit cluster credentials)
+kubeconfig
+*.kubeconfig
+.kube/
+
+# Helm artifacts from local experiments
+*.tgz
+charts/
+
+# Scratch output from kubectl dry runs, e.g. kubectl ... -o yaml > out.yaml
+*.out.yaml
+scratch/
+
+# Environment and secret overrides
+.env
+.env.*
+*.local.yaml
+
+# Vagrant alternative environment
+.vagrant/
+*.log

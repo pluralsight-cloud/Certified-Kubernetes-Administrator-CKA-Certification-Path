@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: globo-quota
+  namespace: globomantics
+spec:
+  hard:
+    # Aggregate request/limit ceilings for the whole namespace.
+    requests.cpu: "2"
+    requests.memory: 2Gi
+    limits.cpu: "4"
+    limits.memory: 4Gi
+    pods: "20"

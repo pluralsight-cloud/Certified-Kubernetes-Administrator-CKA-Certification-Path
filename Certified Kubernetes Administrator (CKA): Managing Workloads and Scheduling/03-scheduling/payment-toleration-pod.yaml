@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: globo-payment
+  namespace: globomantics
+  labels:
+    app: globo-payment
+spec:
+  # A toleration make it eligible for scheduling onto the tainted node.
+  tolerations:
+    - key: env
+      operator: Equal
+      value: payment
+      effect: NoSchedule
+  containers:
+    - name: payment
+      image: nginx:1.31
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi

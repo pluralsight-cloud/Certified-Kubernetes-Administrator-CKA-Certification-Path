@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: globo-catalog
+  namespace: globomantics
+  labels:
+    app: globo-catalog
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: globo-catalog
+  template:
+    metadata:
+      labels:
+        app: globo-catalog
+    spec:
+      containers:
+        - name: catalog
+          image: nginx:1.31
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: globo-catalog-config

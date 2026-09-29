@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: globo-defaults
+  namespace: globomantics
+spec:
+  limits:
+    - type: Container
+      # Injected into any container that omits limits.
+      default:
+        cpu: 250m
+        memory: 256Mi
+      # Injected into any container that omits requests.
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      # Admission rejects a container whose request/limit falls outside this band.
+      min:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: "1"
+        memory: 512Mi
