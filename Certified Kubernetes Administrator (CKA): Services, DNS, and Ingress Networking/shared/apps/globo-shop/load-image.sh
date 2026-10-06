@@ -40,8 +40,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Talk to the VMs through the ssh config Vagrant generates. `ssh vagrant@worker1`
 # only works if that name happens to resolve on your host, which on macOS it does
 # not -- the VMs are reachable through per-machine ports, not by hostname.
-SSH_CFG="${CKA_SSH_CONFIG:-$HERE/../../../../src/cka-lab/.vagrant/cka-ssh-config}"
-LAB_DIR="$(cd "$HERE/../../../../src/cka-lab" 2>/dev/null && pwd || true)"
+SSH_CFG="${CKA_SSH_CONFIG:-$HERE/../../../cka-lab/.vagrant/cka-ssh-config}"
+LAB_DIR="$(cd "$HERE/../../../cka-lab" 2>/dev/null && pwd || true)"
 if [ ! -s "$SSH_CFG" ] && [ -n "$LAB_DIR" ]; then
     echo "==> Generating the Vagrant ssh config"
     ( cd "$LAB_DIR" && vagrant ssh-config > "$SSH_CFG" )
@@ -118,7 +118,7 @@ for n in "${NODES[@]}"; do
 done
 
 echo "==> Done. Every node has the image."
-echo "    Course 7 Module 1 demos:  exercise-files/course-07-services-ingress-gateway/m01-service-types/"
+echo "    Course 7 Module 1 demos:  course-07-services-ingress-gateway/m01-service-types/"
 echo "    Course 2 dev/prod overlays:"
 echo "      kubectl apply -f manifests/environments.yaml"
 echo "      kubectl apply -k manifests/overlays/dev"

@@ -1,6 +1,6 @@
 # Course 7, M03 -- Gateway API
 
-[Course 7 overview](../README.md)  |  [Skill path home](../../../README.md)
+[Course 7 overview](../README.md)
 
 **CKA domain:** Services & Networking (20%)  
 
@@ -43,15 +43,15 @@ To shoot one demo standalone, run the earlier demos' `demo_commands.txt` in orde
 
 ## Spin up a lab
 
-Practice every demo on your own cluster. The lab environment lives in [`src/cka-lab/`](../../../src/cka-lab/) with the exam-shaped lab:
+Practice every demo on your own cluster. The lab environment lives in [`cka-lab/`](../../cka-lab/) with the exam-shaped lab:
 
-- **Windows -- Hyper-V + Vagrant:** three real Ubuntu VMs (`control1`, `worker1`, `worker2`) running kubeadm-built Kubernetes v1.35 with Calico, for node-level break/fix drills. Bring it up with `Start-CkaLab.ps1`, check it with `Get-CkaLabStatus.ps1`, and snapshot before risky steps with `Save-CkaSnapshot.ps1`. Walkthrough: [`TUTORIAL-HYPERV.md`](../../../src/cka-lab/TUTORIAL-HYPERV.md).
-- **macOS -- VMware Fusion + Vagrant:** the same three VMs, same IPs, same cluster. Bring it up with `./cka-lab.sh`, snapshot with `./cka-lab.sh snap <name>`. Walkthrough: [`TUTORIAL-MACOS.md`](../../../src/cka-lab/TUTORIAL-MACOS.md).
+- **Windows -- Hyper-V + Vagrant:** three real Ubuntu VMs (`control1`, `worker1`, `worker2`) running kubeadm-built Kubernetes v1.35 with Calico, for node-level break/fix drills. Bring it up with `Start-CkaLab.ps1`, check it with `Get-CkaLabStatus.ps1`, and snapshot before risky steps with `Save-CkaSnapshot.ps1`. Walkthrough: [`TUTORIAL-HYPERV.md`](../../cka-lab/TUTORIAL-HYPERV.md).
+- **macOS -- VMware Fusion + Vagrant:** the same three VMs, same IPs, same cluster. Bring it up with `./cka-lab.sh`, snapshot with `./cka-lab.sh snap <name>`. Walkthrough: [`TUTORIAL-MACOS.md`](../../cka-lab/TUTORIAL-MACOS.md).
 
 Then install this course's traffic-routing stack -- Gateway API CRDs, Traefik via Helm, and the Globomantics backends -- with [`lab.sh`](../lab.sh) in the course folder:
 
 ```bash
-cd exercise-files/course-07-services-ingress-gateway
+cd course-07-services-ingress-gateway
 ./lab.sh
 ```
 

@@ -1,6 +1,6 @@
 # Course 7, M02 -- Ingress
 
-[Course 7 overview](../README.md)  |  [Skill path home](../../../README.md)
+[Course 7 overview](../README.md)
 
 **CKA domain:** Services & Networking (20%)  
 
@@ -48,7 +48,7 @@ Use Demo 2's own commands, **not** the course-level [`lab.sh`](../lab.sh). `lab.
 **The image on the nodes.** Same as Module 1 -- every backend here runs `ghcr.io/timothywarner-org/globo-shop:v1`, and the page it serves names the Pod that answered, which is what makes routing visible rather than asserted. That self-identification comes from four Downward API `fieldRef` env vars, which is why `globo-apps.yaml` is a manifest and not `kubectl create deployment` -- there is no imperative flag that sets a `fieldRef`, and without them every `grep 'f-pod'` beat in Demos 4 and 6 prints `not-in-kubernetes`:
 
 ```bash
-exercise-files/shared/apps/globo-shop/load-image.sh
+shared/apps/globo-shop/load-image.sh
 ```
 
 On an Apple Silicon Mac you need that script's build path: the published package is amd64-only and arm64 nodes pull it happily and then CrashLoopBackOff with `exec format error`.
@@ -68,9 +68,9 @@ A wildcard `*.globo.com A 192.168.50.11` works too. Only `catalog.globo.com` is 
 
 ## Spin up a lab
 
-Practice every demo on your own cluster. The lab environment lives in [`src/cka-lab/`](../../../src/cka-lab/) with the exam-shaped lab:
+Practice every demo on your own cluster. The lab environment lives in [`cka-lab/`](../../cka-lab/) with the exam-shaped lab:
 
-- **Windows -- Hyper-V + Vagrant:** three real Ubuntu VMs (`control1`, `worker1`, `worker2`) running kubeadm-built Kubernetes v1.35 with Calico, for node-level break/fix drills. Bring it up with `Start-CkaLab.ps1`, check it with `Get-CkaLabStatus.ps1`, and snapshot before risky steps with `Save-CkaSnapshot.ps1`. Walkthrough: [`TUTORIAL-HYPERV.md`](../../../src/cka-lab/TUTORIAL-HYPERV.md).
-- **macOS -- VMware Fusion + Vagrant:** the same three VMs, same IPs, same cluster. Bring it up with `./cka-lab.sh`, snapshot with `./cka-lab.sh snap <name>`. Walkthrough: [`TUTORIAL-MACOS.md`](../../../src/cka-lab/TUTORIAL-MACOS.md).
+- **Windows -- Hyper-V + Vagrant:** three real Ubuntu VMs (`control1`, `worker1`, `worker2`) running kubeadm-built Kubernetes v1.35 with Calico, for node-level break/fix drills. Bring it up with `Start-CkaLab.ps1`, check it with `Get-CkaLabStatus.ps1`, and snapshot before risky steps with `Save-CkaSnapshot.ps1`. Walkthrough: [`TUTORIAL-HYPERV.md`](../../cka-lab/TUTORIAL-HYPERV.md).
+- **macOS -- VMware Fusion + Vagrant:** the same three VMs, same IPs, same cluster. Bring it up with `./cka-lab.sh`, snapshot with `./cka-lab.sh snap <name>`. Walkthrough: [`TUTORIAL-MACOS.md`](../../cka-lab/TUTORIAL-MACOS.md).
 
 Real VMs matter here: every curl in this module goes to `192.168.50.11:30080` **from your workstation**, outside the cluster, which is exactly how an ingress controller is meant to be tested.

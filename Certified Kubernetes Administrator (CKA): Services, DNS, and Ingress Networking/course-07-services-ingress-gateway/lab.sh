@@ -17,7 +17,7 @@
 # Re-runnable at any point: Helm installs are `upgrade --install`, manifests are
 # `apply`, and every delete carries --ignore-not-found and an explicit timeout.
 #
-# Prereqs: the three-node lab cluster (src/cka-lab -- TUTORIAL-MACOS.md on a Mac,
+# Prereqs: the three-node lab cluster (cka-lab -- TUTORIAL-MACOS.md on a Mac,
 # TUTORIAL-HYPERV.md on Windows) plus kubectl and helm on your workstation.
 #================================================================
 set -euo pipefail

@@ -1,6 +1,6 @@
 # Course 7, M01 -- Service Types, Endpoints, and Traffic Routing
 
-[Course 7 overview](../README.md)  |  [Skill path home](../../../README.md)
+[Course 7 overview](../README.md)
 
 **CKA domain:** Services & Networking (20%)  
 
@@ -36,7 +36,7 @@ Everything here is built for a standard cluster (1 control-plane + 2 workers) at
 Every demo in this module runs `ghcr.io/timothywarner-org/globo-shop:v1`. The page it serves names the Pod and the node that answered, which is the only thing that makes "traffic is spreading across three Pods" visible instead of merely asserted.
 
 ```bash
-exercise-files/shared/apps/globo-shop/load-image.sh
+shared/apps/globo-shop/load-image.sh
 ```
 
 That script pulls the image if the nodes can, and otherwise builds it locally and side-loads it into each node's containerd. **On an Apple Silicon Mac you need the build path**: the published package is amd64-only, and on arm64 nodes it pulls successfully and then every Pod dies with `exec /entrypoint.sh: exec format error` -- CrashLoopBackOff with no mention of architecture anywhere in `kubectl describe pod`. The script checks the architecture rather than trusting the pull's exit code.
@@ -45,14 +45,14 @@ That script pulls the image if the nodes can, and otherwise builds it locally an
 
 ## Spin up a lab
 
-Practice every demo on your own cluster. The lab environment lives in [`src/cka-lab/`](../../../src/cka-lab/):
+Practice every demo on your own cluster. The lab environment lives in [`cka-lab/`](../../cka-lab/):
 
-- **Windows -- Hyper-V + Vagrant:** three real Ubuntu VMs (`control1`, `worker1`, `worker2`) running kubeadm-built Kubernetes v1.35 with Calico. Bring it up with `Start-CkaLab.ps1`, check it with `Get-CkaLabStatus.ps1`, snapshot before risky steps with `Save-CkaSnapshot.ps1`. Walkthrough: [`TUTORIAL-HYPERV.md`](../../../src/cka-lab/TUTORIAL-HYPERV.md).
-- **macOS -- VMware Fusion + Vagrant:** the same three VMs, same IPs, same cluster. Bring it up with `./cka-lab.sh`, snapshot with `./cka-lab.sh snap <name>`. Walkthrough: [`TUTORIAL-MACOS.md`](../../../src/cka-lab/TUTORIAL-MACOS.md).
+- **Windows -- Hyper-V + Vagrant:** three real Ubuntu VMs (`control1`, `worker1`, `worker2`) running kubeadm-built Kubernetes v1.35 with Calico. Bring it up with `Start-CkaLab.ps1`, check it with `Get-CkaLabStatus.ps1`, snapshot before risky steps with `Save-CkaSnapshot.ps1`. Walkthrough: [`TUTORIAL-HYPERV.md`](../../cka-lab/TUTORIAL-HYPERV.md).
+- **macOS -- VMware Fusion + Vagrant:** the same three VMs, same IPs, same cluster. Bring it up with `./cka-lab.sh`, snapshot with `./cka-lab.sh snap <name>`. Walkthrough: [`TUTORIAL-MACOS.md`](../../cka-lab/TUTORIAL-MACOS.md).
 
 Real VMs matter here: Demo 5 curls `192.168.50.10-12` **from your workstation**, outside the cluster, which is exactly how a NodePort is meant to be tested.
 
-On macOS, run `./cka-lab.sh dns` once after the cluster is up (the bare `./cka-lab.sh` does it for you). VMware's DHCP hands the VMs a `localdomain` search domain that kubelet copies into every Pod, and with `ndots:5` that turns `globo-shop.default.svc.cluster.local` -- the exact FQDN this module teaches -- into a five-second hang. See the comment above `cmd_dns` in [`cka-lab.sh`](../../../src/cka-lab/cka-lab.sh) for the full trace.
+On macOS, run `./cka-lab.sh dns` once after the cluster is up (the bare `./cka-lab.sh` does it for you). VMware's DHCP hands the VMs a `localdomain` search domain that kubelet copies into every Pod, and with `ndots:5` that turns `globo-shop.default.svc.cluster.local` -- the exact FQDN this module teaches -- into a five-second hang. See the comment above `cmd_dns` in [`cka-lab.sh`](../../cka-lab/cka-lab.sh) for the full trace.
 
 ---
 
@@ -61,6 +61,6 @@ On macOS, run `./cka-lab.sh dns` once after the cluster is up (the bare `./cka-l
 The Ingress and Gateway API modules route to Services, so bring up the shared course stack (Gateway API CRDs, Traefik, the Globomantics backends) with [`lab.sh`](../lab.sh) in the course folder when you get there:
 
 ```bash
-cd exercise-files/course-07-services-ingress-gateway
+cd course-07-services-ingress-gateway
 ./lab.sh
 ```
