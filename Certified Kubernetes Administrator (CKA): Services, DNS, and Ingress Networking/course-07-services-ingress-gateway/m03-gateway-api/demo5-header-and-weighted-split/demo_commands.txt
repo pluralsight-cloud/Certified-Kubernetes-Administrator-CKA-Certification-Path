@@ -1,0 +1,32 @@
+# ── Phase 1: A v2 backend next to v1 ───────────────────────────────────────
+cat catalog-v2.yaml #wait 10
+kubectl apply -f catalog-v2.yaml
+kubectl -n globomantics rollout status deploy/catalog-v2 --timeout=120s
+
+# ── Phase 1b: Two v2 replicas, no traffic yet ──────────────────────────────
+cat catalog-route-header.yaml #wait 10
+kubectl apply -f catalog-route-header.yaml
+
+# ── Phase 2b: One plain request, one with the header ───────────────────────
+curl -s --max-time 5 -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+curl -s --max-time 5 -H "Host: shop.globo.com" -H "X-Version: v2" http://192.168.50.11:30080/catalog | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 3: Deliberate failure -- a typo the schema catches ───────────────
+# Server-side, so the rejection is one line. A client-side apply over an existing
+# object echoes the entire object back inside the error and floods the screen.
+cat catalog-route-typo.yaml
+kubectl apply --server-side -f catalog-route-typo.yaml #allow-error
+
+# ── Phase 4: The real 80/20 split ──────────────────────────────────────────
+cat catalog-route-split.yaml #wait 10
+kubectl apply -f catalog-route-split.yaml
+
+# ── Phase 5: Prove the split -- count by Deployment, not by Pod ────────────
+# The sed strips the ReplicaSet hash and pod suffix, so catalog-7d9f...-x2k9p -> catalog.
+for i in $(seq 1 20); do curl -s --max-time 5 -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog | grep 'f-pod' | sed -E 's/.*">([^<]*).*/\1/; s/-[a-z0-9]+-[a-z0-9]+$//'; done | sort | uniq -c
+
+# ── Phase 6: The field documents itself ────────────────────────────────────
+kubectl explain httproute.spec.rules.backendRefs.weight
+
+# ── Phase 7: Closing state ─────────────────────────────────────────────────
+kubectl -n globomantics get httproute,gateway #wait 8

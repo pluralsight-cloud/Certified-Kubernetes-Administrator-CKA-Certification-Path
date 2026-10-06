@@ -1,0 +1,22 @@
+# ── Phase 1: Write and apply the route ─────────────────────────────────────
+cat catalog-route.yaml #wait 10
+kubectl apply -f catalog-route.yaml
+
+# ── Phase 2: The route's side of the handshake ─────────────────────────────
+kubectl -n globomantics describe httproute catalog-route | grep -A14 '^Status:'
+
+# ── Phase 2b: The Gateway's side -- web went from zero to one ──────────────
+kubectl -n globomantics get gateway globo-gateway -o jsonpath='listeners: {.status.listeners[*].name}{"\n"}attached:  {.status.listeners[*].attachedRoutes}{"\n"}'
+curl -s --max-time 5 -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 4: Break the handshake -- ask the websecure listener ─────────────
+kubectl -n globomantics patch httproute catalog-route --type=json -p='[{"op":"replace","path":"/spec/parentRefs/0/sectionName","value":"websecure"}]'
+kubectl -n globomantics describe httproute catalog-route | grep -A14 '^Status:'
+
+# ── Phase 4c: And the traffic agrees ───────────────────────────────────────
+curl -s --max-time 5 -o /dev/null -w '  shop.globo.com/catalog -> %{http_code}\n' -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog
+
+# ── Phase 5: Put it back ───────────────────────────────────────────────────
+kubectl -n globomantics patch httproute catalog-route --type=json -p='[{"op":"replace","path":"/spec/parentRefs/0/sectionName","value":"web"}]'
+sleep 3
+kubectl -n globomantics get gateway globo-gateway -o jsonpath='listeners: {.status.listeners[*].name}{"\n"}attached:  {.status.listeners[*].attachedRoutes}{"\n"}' #wait 8

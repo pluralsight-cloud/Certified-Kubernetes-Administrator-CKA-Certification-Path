@@ -1,0 +1,9 @@
+# Cleanup: drop both Ingresses and the Traefik Middleware.
+# Traefik and the three backends stay up on purpose -- Demo 2 is what builds
+# them and Demo 6 needs them still running.
+# Idempotent: every delete carries --ignore-not-found, and the annotation goes
+# with the Ingress that carried it.
+kubectl -n globomantics delete ingress globo-hosts globo-paths --ignore-not-found
+kubectl -n globomantics delete middleware strip-prefix --ignore-not-found
+# Expect "No resources found" -- the demo creates both Ingresses on camera.
+kubectl -n globomantics get ingress

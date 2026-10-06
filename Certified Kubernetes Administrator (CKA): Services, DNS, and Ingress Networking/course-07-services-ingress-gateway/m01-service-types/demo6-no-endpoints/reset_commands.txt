@@ -1,0 +1,5 @@
+# Cleanup: undo the broken selector and drop the client pod.
+# Idempotent: re-running on an already-correct Service is a no-op patch.
+kubectl get svc globo-shop >/dev/null 2>&1 && kubectl patch svc globo-shop -p '{"spec":{"selector":{"app":"globo-shop"}}}' || echo "no globo-shop Service -- nothing to reset"
+kubectl delete pod curlpod --ignore-not-found --force --grace-period=0 --timeout=60s
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop

@@ -1,0 +1,5 @@
+# Cleanup: put the Service back to ClusterIP so the demo re-runs from the top.
+# `kubectl patch` has NO --ignore-not-found flag (verified: "error: unknown flag"),
+# so guard on the object existing instead of reaching for a flag that isn't there.
+kubectl get svc globo-shop >/dev/null 2>&1 && kubectl patch svc globo-shop -p '{"spec":{"type":"ClusterIP"}}' || echo "no globo-shop Service -- nothing to reset"
+kubectl get svc globo-shop --ignore-not-found

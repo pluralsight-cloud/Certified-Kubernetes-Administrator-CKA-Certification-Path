@@ -1,0 +1,41 @@
+# ── Phase 1: Context ───────────────────────────────────────────────────────
+kubectl config current-context
+kubectl get nodes -o wide
+
+# ── Phase 2: The chart repo, and the two version columns ───────────────────
+helm repo add traefik https://traefik.github.io/charts
+helm repo update #wait 5
+helm search repo traefik/traefik --versions | head -5 #wait 10
+
+# ── Phase 3: Install, pinned and exposed as NodePort ───────────────────────
+# service.spec.type: chart 41.x nests it -- a bare `service.type` sets nothing and the
+#   Service silently stays LoadBalancer, <pending>, while the TYPE column contradicts you.
+# ports.*.nodePort: pinned so every curl in Modules 2 and 3 uses one fixed address.
+# ingressEndpoint.ip: NodePort Services carry no status.loadBalancer.ingress, so without
+#   this Traefik has nothing to copy and the ADDRESS column on every Ingress stays empty.
+helm install traefik traefik/traefik --version 41.4.0 --namespace traefik --create-namespace --set service.spec.type=NodePort --set ports.web.nodePort=30080 --set ports.websecure.nodePort=30443 --set providers.kubernetesIngress.publishedService.enabled=false --set providers.kubernetesIngress.ingressEndpoint.ip=192.168.50.11 #wait 15
+
+# ── Phase 4: Verify the controller is serving ──────────────────────────────
+kubectl -n traefik rollout status deploy/traefik --timeout=180s
+kubectl -n traefik get pods
+kubectl -n traefik get svc traefik
+kubectl get ingressclass
+
+# ── Phase 5: Three backends, one image ─────────────────────────────────────
+kubectl create namespace globomantics
+# One file, three Deployments and three ClusterIP Services. NOT `kubectl create
+# deployment`: the page names its own Pod from Downward API env vars, and there is
+# no imperative flag that sets a fieldRef. Created imperatively every replica
+# renders "Pod: not-in-kubernetes" and every routing beat in Demos 4 and 6 dies.
+kubectl apply -f globo-apps.yaml
+kubectl -n globomantics rollout status deploy/catalog --timeout=180s
+kubectl -n globomantics rollout status deploy/portal --timeout=180s
+kubectl -n globomantics rollout status deploy/api --timeout=180s
+kubectl -n globomantics get deploy,svc
+
+# ── Phase 6: The controller answers, and has nothing to route ──────────────
+curl -i --max-time 5 http://192.168.50.11:30080/ #wait 8
+
+# ── Phase 7: Closing state ─────────────────────────────────────────────────
+kubectl -n traefik get pods
+kubectl get ingressclass #wait 8

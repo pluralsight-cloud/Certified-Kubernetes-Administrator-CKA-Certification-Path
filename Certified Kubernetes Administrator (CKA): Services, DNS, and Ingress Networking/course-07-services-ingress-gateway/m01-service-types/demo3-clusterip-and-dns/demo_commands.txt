@@ -1,0 +1,55 @@
+# ── Phase 1: Context ───────────────────────────────────────────────────────
+kubectl config current-context
+kubectl get nodes -o wide
+
+# ── Phase 2: Deploy the parts shop ─────────────────────────────────────────
+Ls
+kubectl apply -f globo-shop-deployment.yaml
+
+# ── Phase 3: Three pods, three IPs, nothing in front ───────────────────────
+kubectl rollout status deploy/globo-shop --timeout=180s
+kubectl get pods -o wide -l app=globo-shop
+
+# ── Phase 4: Read the Service spec BEFORE creating it ──────────────────────
+# pluralsightautomation/src/commands/terminal/type.py.
+kubectl expose deployment globo-shop --port=80 --target-port=8080 --dry-run=client -o yaml
+
+# ── Phase 5: Now create it -- still no --type, so ClusterIP ────────────────
+kubectl expose deployment globo-shop --port=80 --target-port=8080
+kubectl get svc globo-shop
+
+# ── Phase 6: A client pod ──────────────────────────────────────────────────
+kubectl run curlpod --image=curlimages/curl --restart=Never -- sleep 3600
+
+# ── Phase 7: Short name, four times ────────────────────────────────────────
+kubectl exec curlpod -- curl -s --max-time 5 globo-shop | grep -E 'f-pod|f-node' | sed -E 's/.*">([^<]*).*/  \1/'
+kubectl exec curlpod -- curl -s --max-time 5 globo-shop | grep -E 'f-pod|f-node' | sed -E 's/.*">([^<]*).*/  \1/'
+kubectl exec curlpod -- curl -s --max-time 5 globo-shop | grep -E 'f-pod|f-node' | sed -E 's/.*">([^<]*).*/  \1/'
+kubectl exec curlpod -- curl -s --max-time 5 globo-shop | grep -E 'f-pod|f-node' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 8: Twelve requests, tallied ──────────────────────────────────────
+kubectl exec curlpod -- sh -c 'for i in $(seq 12); do curl -s --max-time 5 globo-shop; done' | grep 'f-pod' | sed -E 's/.*">([^<]*).*/\1/' | sort | uniq -c
+
+# ── Phase 9: FQDN and raw ClusterIP ────────────────────────────────────────
+kubectl exec curlpod -- curl -s --max-time 5 globo-shop.default.svc.cluster.local | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+CLUSTERIP=$(kubectl get svc globo-shop -o jsonpath='{.spec.clusterIP}')
+echo "ClusterIP is $CLUSTERIP"
+kubectl exec curlpod -- curl -s --max-time 5 "$CLUSTERIP" | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 10: The EndpointSlice ─────────────────────────────────────────────
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"  ready="}{.conditions.ready}{"  node="}{.nodeName}{"\n"}{end}'
+
+# ── Phase 11: The deprecated Endpoints API ─────────────────────────────────
+kubectl get endpoints globo-shop
+
+# ── Phase 12: Scale down, the list follows ─────────────────────────────────
+kubectl scale deployment globo-shop --replicas=1
+kubectl rollout status deploy/globo-shop --timeout=120s #wait 3
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"  ready="}{.conditions.ready}{"\n"}{end}'
+
+# ── Phase 13: And back to three ────────────────────────────────────────────
+kubectl scale deployment globo-shop --replicas=3
+kubectl rollout status deploy/globo-shop --timeout=120s
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"  ready="}{.conditions.ready}{"\n"}{end}'
+kubectl get svc globo-shop #wait 8
