@@ -1,0 +1,438 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/ubuntu2204"
+  config.vm.box_check_update = false
+
+  # --- Host platform: Windows/Hyper-V (recorded) vs macOS/VMware -------------
+  # Courses 1-4 were recorded on Windows + Hyper-V and that path is untouched:
+  # every branch below is false on Windows, so the file behaves exactly as it
+  # did. On macOS the hyperv provider does not exist, so we switch provider,
+  # box, and network type. Everything shared -- node names, IPs, package
+  # versions, provisioning -- stays shared, so both hosts build the same
+  # cluster. Walkthrough: TUTORIAL-MACOS.md.
+  MAC = !!(RbConfig::CONFIG["host_os"] =~ /darwin/)
+
+  # --- Kubernetes version (override for the Module 2 upgrade lab) -----------
+  # Defaults reproduce the current v1.35 lab byte-for-byte when these env vars
+  # are unset. To build the M02 "start one minor behind" cluster, set them on
+  # the HOST before `vagrant up` (admin PowerShell):
+  #   $env:CKA_K8S_MINOR       = "1.34"
+  #   $env:CKA_K8S_PKG_VERSION = "1.34.6-1.1"   # exact patch: apt-cache madison kubeadm
+  # Record the M02 upgrade to v1.35, then reset with .\cka-restore.ps1.
+  K8S_MINOR       = ENV.fetch("CKA_K8S_MINOR", "1.35")
+  K8S_PKG_VERSION = ENV.fetch("CKA_K8S_PKG_VERSION", "1.35.0-1.1")
+
+  # --- Create the CKA-NAT switch before first VM boots (Hyper-V hosts only) ---
+  # On macOS there is no Hyper-V switch to create -- the VMware Utility builds
+  # the host-only vmnet on demand -- and this trigger would abort `vagrant up`
+  # on its first PowerShell call.
+  unless MAC
+    config.trigger.before :up do |trigger|
+      trigger.info = "Ensuring CKA-NAT Hyper-V switch exists..."
+      trigger.run = {
+        privileged: "true",
+        powershell_elevated_interactive: "true",
+        path: "./create-nat-switch.ps1"
+      }
+    end
+  end
+
+  # --- Node definitions: hostname => static IP ---
+  NODES = {
+    "control1" => "192.168.50.10",
+    "worker1"  => "192.168.50.11",
+    "worker2"  => "192.168.50.12",
+  }
+
+  GATEWAY = "192.168.50.1"
+  DNS     = "8.8.8.8"
+
+  NODES.each do |name, ip|
+    config.vm.define name do |node|
+      node.vm.hostname = name
+
+      # Hyper-V provider settings
+      node.vm.provider "hyperv" do |h|
+        h.memory = 2048
+        h.cpus = 2
+        h.vmname = name
+        h.enable_checkpoints = true
+        h.enable_automatic_checkpoints = false
+      end
+
+      # VMware Fusion / Workstation provider settings (macOS path).
+      #
+      # The box has to change with the provider: generic/ubuntu2204 publishes no
+      # vmware_desktop image, and Fusion on Apple Silicon runs arm64 guests
+      # only. bento/ubuntu-22.04 ships vmware_desktop for both amd64 and arm64,
+      # and Vagrant 2.4 selects the host architecture on its own. Same Ubuntu
+      # 22.04, same `vagrant` user, same insecure key -- so join_worker.sh and
+      # every provisioner below work unchanged.
+      node.vm.provider "vmware_desktop" do |v, override|
+        override.vm.box = "bento/ubuntu-22.04"
+        v.vmx["memsize"]  = "2048"
+        v.vmx["numvcpus"] = "2"
+        v.gui = false
+      end
+
+      if MAC
+        # VMware host-only network. Vagrant and the VMware Utility create the
+        # 192.168.50.0/24 vmnet and write the guest's netplan themselves, which
+        # is why the static-ip provisioner below is skipped on this path.
+        #
+        # Consequence worth knowing: the VM now has TWO NICs (VMware NAT for
+        # internet + this one). That is what the kubelet --node-ip provisioner
+        # and bootstrap_cp.sh's CP_IP detection exist to disambiguate.
+        node.vm.network "private_network", ip: ip
+      else
+        # Use CKA-NAT switch instead of Default Switch.
+        # auto_config: false tells Vagrant NOT to write its own network config —
+        # netplan (below) becomes the sole authority for the interface, which
+        # avoids a race between Vagrant's DHCP attempt and our static IP.
+        node.vm.network "public_network", bridge: "CKA-NAT", auto_config: false
+      end
+
+      # --- Static IP via netplan (Hyper-V path only) ---
+      # Not indented on purpose: the heredoc bodies below contain a `<<YAML`
+      # terminator that must stay at column 0.
+      unless MAC
+      node.vm.provision "shell", name: "static-ip", inline: <<-NETPLAN
+        set -euo pipefail
+
+        echo "[+] Configuring static IP #{ip} on $(hostname)..."
+
+        # Find the Hyper-V network interface:
+        #   - must be UP (avoids cloud-init stub interfaces that never came up)
+        #   - exclude loopback, docker, cni, veth, virbr, bridge, flannel, calico
+        #   - prefer eth0 (deterministic on Hyper-V boxes) if present and up
+        if ip -o link show up | awk -F': ' '{print $2}' | grep -qx eth0; then
+          IFACE=eth0
+        else
+          IFACE=$(ip -o link show up | \
+            awk -F': ' '$2 !~ /^(lo|docker|cni|veth|virbr|br-|flannel|cali)/ {print $2; exit}')
+        fi
+
+        if [ -z "${IFACE:-}" ]; then
+          echo "[ERROR] Could not detect network interface" >&2
+          ip -o link show >&2
+          exit 1
+        fi
+        echo "[+] Using interface: $IFACE"
+
+        cat <<YAML | tee /etc/netplan/01-cka-static.yaml
+network:
+  version: 2
+  ethernets:
+    ${IFACE}:
+      dhcp4: false
+      addresses:
+        - #{ip}/24
+      routes:
+        - to: default
+          via: #{GATEWAY}
+      nameservers:
+        addresses: [#{DNS}, 8.8.4.4]
+YAML
+
+        # Remove any DHCP config that conflicts
+        rm -f /etc/netplan/00-installer-config.yaml 2>/dev/null || true
+        rm -f /etc/netplan/50-cloud-init.yaml 2>/dev/null || true
+        rm -f /etc/netplan/50-vagrant.yaml 2>/dev/null || true
+
+        # Regenerate backend config, then prefer `netplan try` — it auto-reverts
+        # if the new config kills connectivity (which would be unrecoverable
+        # mid-provision). Fall back to `apply` on older netplan builds.
+        netplan generate
+        if netplan try --help >/dev/null 2>&1; then
+          # `netplan try` wants a confirmation on stdin; feeding it newline
+          # accepts the change before the 30s auto-revert timer fires.
+          echo "" | netplan try --timeout 30 || netplan apply
+        else
+          netplan apply
+        fi
+        echo "[OK] Static IP #{ip} applied on $IFACE"
+      NETPLAN
+      end
+
+      # --- /etc/hosts so nodes can resolve each other ---
+      node.vm.provision "shell", name: "hosts-file", inline: <<-HOSTS
+        set -euo pipefail
+        echo "[+] Writing /etc/hosts entries..."
+
+        # Remove any old CKA entries, then append fresh
+        sed -i '/# CKA-LAB/d' /etc/hosts
+        echo "192.168.50.10 control1  # CKA-LAB" >> /etc/hosts
+        echo "192.168.50.11 worker1   # CKA-LAB" >> /etc/hosts
+        echo "192.168.50.12 worker2   # CKA-LAB" >> /etc/hosts
+
+        echo "[OK] /etc/hosts updated"
+      HOSTS
+
+      # --- Main CKA prereq provisioner ---
+      node.vm.provision "shell", name: "cka-prereqs",
+        env: { "K8S_MINOR" => K8S_MINOR, "K8S_PKG_VERSION" => K8S_PKG_VERSION },
+        inline: <<-'SHELL'
+        #!/usr/bin/env bash
+        #================================================================
+        # CKA Lab — Pre-cluster provisioning
+        # Installs containerd + crictl + kubeadm/kubelet/kubectl on Ubuntu 22.04
+        # Stops BEFORE kubeadm init so you can snapshot clean state
+        #================================================================
+
+        set -euo pipefail
+
+        # apt must never block on an interactive prompt during provisioning.
+        export DEBIAN_FRONTEND=noninteractive
+
+        # --- Logging + error handling ---
+        LOG="/var/log/cka-provision.log"
+        STEP=""
+
+        log()  { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+        fail() { log "FATAL: Step '$STEP' failed (exit $?). Check $LOG"; exit 1; }
+        trap fail ERR
+
+        run_step() {
+          STEP="$1"
+          log ">>> $STEP"
+        }
+
+        # retry — re-run a command with exponential backoff if it fails.
+        # This is the fix for the silent half-provision: a transient blip
+        # fetching from pkgs.k8s.io, or a dpkg lock held by unattended-upgrades
+        # on a freshly booted box, no longer aborts the whole script. A genuine
+        # failure still exits loudly after the final attempt, so the ERR trap
+        # above still fires for real problems — fail fast, not fail silent.
+        retry() {
+          local max=6 attempt=1 delay=5
+          while true; do
+            if "$@"; then return 0; fi
+            if [ "$attempt" -ge "$max" ]; then
+              log "    ERROR: '$*' failed after $max attempts"
+              return 1
+            fi
+            log "    attempt $attempt/$max failed: '$*' — waiting ${delay}s"
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
+        }
+
+        # apt wrappers. DPkg::Lock::Timeout makes apt itself wait politely for
+        # the cloud-init / unattended-upgrades lock on a freshly booted box.
+        # Output is sent to the log so the console stays readable; retry()'s
+        # own progress messages still tee to the console.
+        APT_OPTS="-o DPkg::Lock::Timeout=120"
+        apt_update()  { apt-get $APT_OPTS update         >> "$LOG" 2>&1; }
+        apt_install() { apt-get $APT_OPTS install -y "$@" >> "$LOG" 2>&1; }
+
+        # --- 1. Disable swap ---
+        run_step "Disable swap"
+        swapoff -a
+        # Comment the swap line regardless of space/tab delimiters. Ubuntu 22.04
+        # writes /etc/fstab with TABS, so the old ' swap ' (space-only) match never
+        # commented /swap.img -- swap silently came back on every reboot and kubelet
+        # crashlooped with "running with swap on is not supported". [[:space:]]
+        # matches tab OR space; the [^#] guard keeps it idempotent on re-provision.
+        sed -i.bak -E '/[[:space:]]swap[[:space:]]/ s/^([^#])/#\1/' /etc/fstab
+        log "    swap disabled and fstab updated (whitespace-tolerant match)"
+
+        # --- 2. Kernel modules ---
+        run_step "Load kernel modules"
+        cat <<EOF | tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+        modprobe overlay
+        modprobe br_netfilter
+        log "    overlay + br_netfilter loaded"
+
+        # --- 3. Sysctl params ---
+        run_step "Configure sysctl for bridged traffic"
+        cat <<EOF | tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+        sysctl --system >> "$LOG" 2>&1
+        log "    sysctl applied"
+
+        # --- 4. Install containerd ---
+        run_step "Install containerd"
+        retry apt_update
+        retry apt_install containerd apt-transport-https ca-certificates curl gnupg
+        log "    packages installed"
+
+        run_step "Configure containerd with systemd cgroup driver"
+        mkdir -p /etc/containerd
+        containerd config default | tee /etc/containerd/config.toml >> "$LOG"
+        if ! sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml; then
+          log "WARNING: sed failed — verify SystemdCgroup manually"
+        fi
+        if grep -q 'SystemdCgroup = true' /etc/containerd/config.toml; then
+          log "    SystemdCgroup = true confirmed"
+        else
+          log "FATAL: SystemdCgroup not set — containerd config format may have changed"
+          exit 1
+        fi
+        systemctl restart containerd
+        systemctl enable containerd
+
+        # --- 5. Configure crictl ---
+        run_step "Configure crictl"
+        cat <<EOF | tee /etc/crictl.yaml
+runtime-endpoint: unix:///run/containerd/containerd.sock
+image-endpoint: unix:///run/containerd/containerd.sock
+timeout: 10
+EOF
+        log "    crictl.yaml written"
+
+        # --- 6. Kubernetes apt repo ---
+        # This is the step that silently aborted before. The GPG key fetch
+        # from pkgs.k8s.io is the most network-fragile command in the whole
+        # provisioner — a VPN or a transient DNS hiccup kills it. It is now
+        # retried, curl retries internally too, and the keyring is sanity-
+        # checked for non-zero size before we trust it.
+        run_step "Add Kubernetes v${K8S_MINOR} apt repo"
+        mkdir -p /etc/apt/keyrings
+        fetch_k8s_key() {
+          curl --retry 3 --retry-delay 3 --retry-connrefused -fsSL \
+               https://pkgs.k8s.io/core:/stable:/v${K8S_MINOR}/deb/Release.key \
+            | gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        }
+        retry fetch_k8s_key
+        if [ ! -s /etc/apt/keyrings/kubernetes-apt-keyring.gpg ]; then
+          log "FATAL: K8s GPG keyring is empty after fetch — check DNS/VPN/internet"
+          exit 1
+        fi
+        echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v${K8S_MINOR}/deb/ /" \
+          | tee /etc/apt/sources.list.d/kubernetes.list
+        log "    repo added"
+
+        # --- 7. Install K8s components ---
+        # Pinned to prevent drift during recording — bump version here
+        # when curriculum updates. Format matches pkgs.k8s.io:
+        #   <upstream>-<debian-revision>, e.g. 1.35.0-1.1
+        # Use `apt-cache madison kubelet` inside a provisioned VM to
+        # discover the latest 1.35.x-1.1 before bumping.
+        run_step "Install kubelet, kubeadm, kubectl (pinned) + crictl"
+        K8S_PKG_VERSION="${K8S_PKG_VERSION:-1.35.0-1.1}"
+        retry apt_update
+        retry apt_install \
+          kubelet="$K8S_PKG_VERSION" \
+          kubeadm="$K8S_PKG_VERSION" \
+          kubectl="$K8S_PKG_VERSION"
+        # crictl ships in the cri-tools package. kubeadm on the pkgs.k8s.io
+        # repos does NOT reliably pull it as a transitive dependency, so
+        # install it explicitly — Demo 2 and Demo 3 invoke `crictl` directly
+        # and a missing binary is invisible until on-camera. Left UNPINNED
+        # (crictl tolerates +/-1 minor skew vs the runtime) and UNHELD on
+        # purpose: holding it would make `apt-mark showhold` return four
+        # lines and break the runbook's "three holds" narration in Demo 4.
+        retry apt_install cri-tools
+        apt-mark hold kubelet kubeadm kubectl
+        systemctl enable kubelet
+        log "    installed $K8S_PKG_VERSION (+ crictl) and held k8s packages"
+
+        # --- 8. Shell quality of life ---
+        # Guarded so re-running `vagrant provision` does not append the same
+        # three lines again and again — the provisioner must be idempotent.
+        run_step "Configure bash aliases and completion"
+        if ! grep -q 'alias k=kubectl' /home/vagrant/.bashrc 2>/dev/null; then
+          cat <<'BASHRC' >> /home/vagrant/.bashrc
+alias k=kubectl
+source <(kubectl completion bash)
+complete -o default -F __start_kubectl k
+BASHRC
+          log "    aliases + completion added"
+        else
+          log "    aliases already present — skipped"
+        fi
+
+        # --- 9. Verification gate ---
+        run_step "Verify all components"
+        FAIL=0
+        for cmd in kubeadm kubelet kubectl containerd crictl; do
+          if command -v "$cmd" &>/dev/null; then
+            log "    $cmd OK"
+          else
+            log "    MISSING: $cmd"
+            FAIL=1
+          fi
+        done
+        if [ "$FAIL" -eq 1 ]; then
+          log "FATAL: One or more components missing"
+          exit 1
+        fi
+
+        # --- 10. Connection summary ---
+        NODE=$(hostname)
+        IP=$(hostname -I | awk '{print $1}')
+        log ""
+        log "================================================"
+        log "  NODE READY: $NODE"
+        log "  IP:         $IP"
+        log "  SSH:        ssh vagrant@$IP"
+        log "  Vagrant:    vagrant ssh $NODE"
+        log "  Log:        $LOG"
+        log "  (Credentials in README.md — not logged here)"
+        log "================================================"
+      SHELL
+
+      # --- Pin kubelet's node IP --------------------------------------------
+      # VMware gives every VM two NICs: a NAT interface for internet access and
+      # the host-only lab network. kubelet picks the address on the default
+      # route -- the NAT one -- as the node's InternalIP, and then
+      # `curl <node-ip>:<nodePort>` from the host hits an address that is not
+      # routable from there. Since NodePort-from-the-host is the property
+      # Course 7 is built on, pin the address rather than hope.
+      #
+      # Runs on Hyper-V too, where the single NIC already holds exactly this
+      # address: the value written is identical, so the recorded path is
+      # unaffected.
+      node.vm.provision "shell", name: "kubelet-node-ip", inline: <<-NODEIP
+        set -euo pipefail
+        echo "KUBELET_EXTRA_ARGS=--node-ip=#{ip}" > /etc/default/kubelet
+        systemctl daemon-reload
+        # Before `kubeadm init`/`join` there is no kubelet config, so kubelet is
+        # crash-looping by design here. Restarting is best-effort; the grep
+        # below is the assertion that actually matters.
+        systemctl restart kubelet || true
+        grep -q -- "--node-ip=#{ip}" /etc/default/kubelet
+        echo "[OK] kubelet node-ip pinned to #{ip}"
+      NODEIP
+
+    end # node
+  end # NODES.each
+
+  # --- After all VMs are up, print consolidated connection guide ---
+  config.trigger.after :up do |trigger|
+    trigger.info = "CKA Lab — Connection Summary"
+    trigger.ruby do |env, machine|
+      puts ""
+      puts "=" * 60
+      puts "  CKA LAB — CONNECTION GUIDE"
+      puts "=" * 60
+      puts ""
+      puts "  %-12s %-18s %s" % ["NODE", "IP", "SSH COMMAND"]
+      puts "  " + "-" * 56
+      puts "  %-12s %-18s %s" % ["control1", "192.168.50.10", "ssh vagrant@192.168.50.10"]
+      puts "  %-12s %-18s %s" % ["worker1",  "192.168.50.11", "ssh vagrant@192.168.50.11"]
+      puts "  %-12s %-18s %s" % ["worker2",  "192.168.50.12", "ssh vagrant@192.168.50.12"]
+      puts ""
+      puts "  Credentials: see README.md (not logged here)"
+      puts "  Vagrant:   vagrant ssh <node>"
+      if MAC
+        puts "  Bootstrap: ./cka-lab.sh bootstrap"
+        puts "  Validate:  ./cka-lab.sh status"
+        puts "  Snapshot:  ./cka-lab.sh snap <name>"
+      else
+        puts "  Validate:  .\\Test-CkaLabReady.ps1"
+        puts "  Snapshot:  .\\Save-CkaSnapshot.ps1"
+      end
+      puts ""
+      puts "=" * 60
+      puts ""
+    end
+  end
+
+end

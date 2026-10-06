@@ -1,0 +1,33 @@
+VAGRANT COMMANDS
+
+Create VMs:
+vagrant up
+
+SSH into control plane:
+vagrant ssh control1
+
+Stop VMs:
+vagrant halt
+
+Destroy VMs:
+vagrant destroy -f
+
+Re-run provisioning:
+vagrant provision
+
+KUBERNETES COMMANDS
+
+Initialize cluster (on cp):
+sudo kubeadm init --pod-network-cidr=192.168.0.0/16
+
+Configure kubectl:
+mkdir -p $HOME/.kube
+sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $USER:$USER $HOME/.kube/config
+
+Install CNI (Calico v3.29.1 via the Tigera operator -- pinned, never 'master'):
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/tigera-operator.yaml
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/custom-resources.yaml
+
+Get join command:
+kubeadm token create --print-join-command

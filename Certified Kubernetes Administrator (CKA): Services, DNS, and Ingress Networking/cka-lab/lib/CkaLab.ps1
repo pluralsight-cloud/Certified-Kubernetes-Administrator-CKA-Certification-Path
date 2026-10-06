@@ -1,0 +1,198 @@
+<#
+.SYNOPSIS
+    Shared functions for CKA lab scripts.
+    Dot-sourced by every Hyper-V/Vagrant lab control script in this folder.
+#>
+
+#region Output Helpers
+
+# Neon green (#39FF14) via 24-bit ANSI so the color survives colorblind / dark
+# VS Code themes that remap the 16-color `Green` to something muted. `[INFO]`
+# was previously Yellow, which reads as orange/red on the author's theme — red is
+# reserved for errors, not informational chatter. PS7-only (`#Requires 7.0`
+# at the entry points), so `` `e `` is always available.
+$Script:NeonGreen = "`e[38;2;57;255;20m"
+# Bright pop-yellow (#FFEA00) for the tutorial Command: line — distinct from
+# NeonGreen INFO chatter and from white explanation/output. 24-bit ANSI for
+# the same colorblind/dark-theme reasons as NeonGreen above. PS7-only.
+$Script:BrightYellow = "`e[38;2;255;234;0m"
+# Sky blue (#56B4E9) for kubectl/command OUTPUT — Wong colorblind-safe palette,
+# the canonical "distinguishable across deuteranopia/protanopia/tritanopia"
+# choice. Pairs with BrightYellow for instant cause→effect contrast on camera:
+# yellow = the command we ran, sky blue = what the cluster said back.
+$Script:SkyBlue = "`e[38;2;86;180;233m"
+$Script:AnsiReset = "`e[0m"
+
+function Write-Step {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host "$($Script:NeonGreen)>>> $Message$($Script:AnsiReset)"
+    Write-Host ""
+}
+
+function Write-Success {
+    param([string]$Message)
+    Write-Host "$($Script:NeonGreen)[OK] $Message$($Script:AnsiReset)"
+}
+
+function Write-Info {
+    param([string]$Message)
+    Write-Host "$($Script:NeonGreen)[INFO] $Message$($Script:AnsiReset)"
+}
+
+function Write-ErrorMsg {
+    param([string]$Message)
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
+}
+
+function Write-Warn {
+    # Bright pop-yellow + explicit [WARN] label. Distinct from green [INFO]
+    # and red [ERROR] so the three severities never depend on color alone.
+    param([string]$Message)
+    Write-Host "$($Script:BrightYellow)[WARN] $Message$($Script:AnsiReset)"
+}
+
+#endregion
+
+#region Lab Topology (single source of truth)
+
+# The CKA lab is a fixed 3-node Hyper-V cluster. These helpers are the ONE place
+# the node names and IPs are defined, so every wrapper (Save-CkaSnapshot,
+# Restore-CkaSnapshot, Get-CkaLabStatus, Get-CkaConnectionInfo, Test-CkaLabReady)
+# agrees and the names can never drift apart. If a node is ever renamed or added,
+# change it HERE and nowhere else.
+
+function Get-CkaLabNodes {
+    <#
+    .SYNOPSIS
+        Returns the lab nodes as ordered objects (Name + static IP),
+        control plane first.
+    #>
+    @(
+        [pscustomobject]@{ Name = 'control1'; IP = '192.168.50.10' }
+        [pscustomobject]@{ Name = 'worker1';  IP = '192.168.50.11' }
+        [pscustomobject]@{ Name = 'worker2';  IP = '192.168.50.12' }
+    )
+}
+
+function Get-CkaLabVMs {
+    <#
+    .SYNOPSIS
+        Returns just the lab VM names, in boot order (control plane first):
+        control1, worker1, worker2.
+    #>
+    (Get-CkaLabNodes).Name
+}
+
+#endregion
+
+#region Environment Setup
+
+function Initialize-LabEncoding {
+    <#
+    .SYNOPSIS
+        Forces the console and PowerShell pipeline to UTF-8.
+
+    .DESCRIPTION
+        vagrant, ssh, and kubectl emit UTF-8 (bullets, checkmarks, emoji). The
+        default Windows console code page is cp437 / cp1252, so those bytes
+        render as garbage like "ΓÇó Γ£ô ≡ƒû╝". Setting both the OS code page
+        and PowerShell's OutputEncoding fixes it without altering any command.
+        Call this FIRST in every entry point, before any external command runs.
+
+        On Linux (including pwsh inside WSL2) the terminal is already UTF-8 and
+        chcp.com does not exist, so this function is a no-op there.
+    #>
+    if (-not $IsWindows) { return }
+
+    try {
+        # OS-level console code page (affects what external tools print).
+        # 65001 = UTF-8. chcp output is noisy; redirect it.
+        $null = & chcp.com 65001 2>&1
+    } catch {
+        # chcp not available (unlikely on Windows); non-fatal
+    }
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+        # $OutputEncoding controls how PowerShell encodes bytes it sends
+        # through the pipeline to external commands.
+        $global:OutputEncoding = [System.Text.Encoding]::UTF8
+    } catch {
+        Write-Output "[WARN] Could not set UTF-8 console encoding: $($_.Exception.Message)"
+    }
+}
+
+function Initialize-LabPath {
+    <#
+    .SYNOPSIS
+        Adds winget, Docker, and System32 to PATH if missing.
+        Spawned PowerShell sessions often inherit a minimal PATH.
+
+        On Linux (including pwsh inside WSL2) the PATH is inherited from the
+        launching shell (bash/zsh) and already contains kind/kubectl/docker
+        via Docker Desktop's WSL integration, so this function is a no-op.
+        Also avoids touching $env:LOCALAPPDATA / $env:SystemRoot which are
+        unset on Linux and would throw Join-Path null-binding errors.
+    #>
+    if (-not $IsWindows) { return }
+
+    $pathsToAdd = @(
+        (Join-Path -Path $env:LOCALAPPDATA -ChildPath "Microsoft\WinGet\Links"),    # kind.exe
+        "C:\Program Files\Docker\Docker\resources\bin",                              # docker.exe, kubectl.exe
+        (Join-Path -Path $env:SystemRoot -ChildPath "System32")                      # wsl.exe
+    )
+
+    # Normalize existing PATH once: split on ';', trim trailing slashes, lowercase,
+    # and drop empty segments. Use a HashSet for O(1) membership checks and to
+    # avoid double-prepending when a scoop/winget variant of the same path exists.
+    $existing = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($segment in ($env:Path -split ';')) {
+        if (-not [string]::IsNullOrWhiteSpace($segment)) {
+            [void]$existing.Add($segment.TrimEnd('\').ToLowerInvariant())
+        }
+    }
+
+    foreach ($p in $pathsToAdd) {
+        if (-not (Test-Path -Path $p)) { continue }
+        $normalized = $p.TrimEnd('\').ToLowerInvariant()
+        if (-not $existing.Contains($normalized)) {
+            $env:Path = "$p;$env:Path"
+            [void]$existing.Add($normalized)
+        }
+    }
+}
+
+#endregion
+
+#region Host Info
+
+function Get-HostMemoryInfo {
+    <#
+    .SYNOPSIS
+        Returns a hashtable with FreeGB, UsedGB, TotalGB or $null if unavailable.
+    #>
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem
+        return @{
+            FreeGB  = [math]::Round($os.FreePhysicalMemory / 1MB, 1)
+            UsedGB  = [math]::Round(($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / 1MB, 1)
+            TotalGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 1)
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Write-HostMemory {
+    <#
+    .SYNOPSIS
+        Writes host memory info line if available.
+    #>
+    $mem = Get-HostMemoryInfo
+    if ($mem) {
+        Write-Info "Host memory: $($mem.UsedGB)GB used / $($mem.TotalGB)GB total ($($mem.FreeGB)GB free)"
+    }
+}
+
+#endregion
