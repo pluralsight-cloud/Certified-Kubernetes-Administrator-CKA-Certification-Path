@@ -1,0 +1,6 @@
+volumeMounts:
+  - name: data
+    mountPath: /data
+securityContext:
+  runAsUser: 65532
+  runAsNonRoot: true

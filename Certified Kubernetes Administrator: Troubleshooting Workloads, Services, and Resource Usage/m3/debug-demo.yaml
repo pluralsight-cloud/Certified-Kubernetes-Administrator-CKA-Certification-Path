@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: debug-demo
+spec:
+  initContainers:
+    - name: init-check
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "=== INIT CONTAINER ==="
+          echo "Performing initialization..."
+          sleep 2
+          echo "Initialization complete."
+
+  containers:
+    - name: main
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "=== MAIN CONTAINER ==="
+          echo "Application started."
+          sleep 3600

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-demo
+spec:
+  initContainers:
+    - name: init-check
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "Checking application configuration..."
+          ls -l /etc/app-config
+          echo "Configuration check passed."
+
+  containers:
+    - name: main
+      image: nginx:1.27
+      ports:
+        - containerPort: 80

@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: log-generator
+  labels:
+    app: log-generator
+spec:
+  # Native sidecar: init container + restartPolicy: Always
+  initContainers:
+    - name: log-metrics-sidecar
+      image: busybox:1.37
+      restartPolicy: Always
+      command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Sidecar starting..."
+
+          # Background process counts lines written to the application log.
+          (
+            while true; do
+              if [ -f /logs/app.log ]; then
+                lines=$(wc -l < /logs/app.log)
+                bytes=$(wc -c < /logs/app.log)
+                echo "METRIC log_lines=$lines log_bytes=$bytes"
+              fi
+              sleep 5
+            done
+          ) &
+
+          # Main sidecar process tails the application log.
+          touch /logs/app.log
+          tail -F /logs/app.log
+
+      volumeMounts:
+        - name: logs
+          mountPath: /logs
+
+  containers:
+    - name: app
+      image: busybox:1.37
+      command:
+        - /bin/sh
+        - -c
+        - |
+          i=0
+
+          while true; do
+            i=$((i + 1))
+
+            echo "$(date -Iseconds) level=INFO request_id=$i message=\"Processing request\""
+            echo "$(date -Iseconds) level=DEBUG request_id=$i message=\"Doing some work\""
+            echo "$(date -Iseconds) level=INFO request_id=$i status=200 duration_ms=$((RANDOM % 500 + 10))"
+
+            # Also write the application log to the shared volume.
+            echo "$(date -Iseconds) request=$i status=200" >> /logs/app.log
+
+            sleep 0.1
+          done
+
+      volumeMounts:
+        - name: logs
+          mountPath: /logs
+
+  volumes:
+    - name: logs
+      emptyDir: {}

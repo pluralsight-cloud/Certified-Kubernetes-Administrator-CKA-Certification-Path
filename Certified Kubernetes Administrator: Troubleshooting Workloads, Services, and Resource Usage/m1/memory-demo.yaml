@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: memory-demo
+  labels:
+    app: memory-demo
+spec:
+  restartPolicy: Always
+  containers:
+    - name: memory-hog
+      image: python:3.12-slim
+      command: ["python", "-u", "-c"]
+      args:
+        - |
+          import time
+
+          print("[memory-hog] starting, will allocate ~50Mi every 2s")
+          chunks = []
+          i = 0
+          while True:
+              chunks.append(bytearray(50 * 1024 * 1024))  # 50Mi
+              i += 1
+              print(f"[memory-hog] allocated chunk {i}, total ~{i * 50}Mi")
+              time.sleep(2)
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "512Mi"
