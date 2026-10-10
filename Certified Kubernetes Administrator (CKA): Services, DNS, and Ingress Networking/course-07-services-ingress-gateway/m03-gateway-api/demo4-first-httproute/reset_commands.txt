@@ -1,0 +1,10 @@
+# Cleanup: no HTTPRoute, so the apply on camera creates it and web starts at zero.
+kubectl -n globomantics delete httproute catalog-route --ignore-not-found
+# Module 2's Ingresses run on the same Traefik. globo-paths claims shop.globo.com/catalog
+# and would answer the curl instead of the route; catch-all would turn the Phase 4c
+# 404 into a 200 from portal. Removing them twice is harmless.
+kubectl -n globomantics delete ingress globo-paths catch-all --ignore-not-found
+kubectl -n globomantics delete middleware strip-prefix --ignore-not-found
+# Expect: listeners: web websecure / attached: 0 0 -- and a 404 for shop.globo.com.
+kubectl -n globomantics get gateway globo-gateway -o jsonpath='listeners: {.status.listeners[*].name}{"\n"}attached:  {.status.listeners[*].attachedRoutes}{"\n"}'
+curl -s -o /dev/null -w 'shop.globo.com before route: %{http_code}\n' --max-time 5 -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog

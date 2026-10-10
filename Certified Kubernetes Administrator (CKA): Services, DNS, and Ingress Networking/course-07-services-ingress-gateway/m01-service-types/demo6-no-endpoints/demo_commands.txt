@@ -1,0 +1,37 @@
+# ── Phase 1: Context and the working state ─────────────────────────────────
+kubectl config current-context
+kubectl get svc globo-shop
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop
+
+# ── Phase 2: One good request ──────────────────────────────────────────────
+kubectl exec curlpod -- curl -s --max-time 5 globo-shop | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 3: Break the selector by one character ───────────────────────────
+kubectl patch svc globo-shop -p '{"spec":{"selector":{"app":"globo-shopp"}}}'
+
+# ── Phase 4: The symptom -- an instant refusal, not a hang ─────────────────
+kubectl exec curlpod -- curl -s -o /dev/null -w 'http_code=%{http_code}  time=%{time_total}s\n' --max-time 5 globo-shop || echo "  curl exit $? -- connection refused, instantly, with nothing to go on"
+
+# ── Phase 5: Rung 1 -- GET. Both objects insist they are fine ──────────────
+kubectl get svc globo-shop
+kubectl get pods -l app=globo-shop
+
+# ── Phase 6: Rung 2 -- the EndpointSlice is where the truth is ─────────────
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop
+kubectl describe svc globo-shop | grep -E 'Selector|Endpoints'
+
+# ── Phase 7: Two labels side by side ───────────────────────────────────────
+kubectl get svc globo-shop -o jsonpath='service selector: {.spec.selector}{"\n"}'
+kubectl get pods -l app=globo-shop -o jsonpath='pod labels:      {.items[0].metadata.labels}{"\n"}'
+
+# ── Phase 8: Fix it -- the list rebuilds itself ────────────────────────────
+kubectl patch svc globo-shop -p '{"spec":{"selector":{"app":"globo-shop"}}}'
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop
+# the slice repopulates instantly, but kube-proxy still has to rewrite the node's
+# rules. Curling in the same second gets a refusal and contradicts the narration.
+sleep 2
+kubectl exec curlpod -- curl -s --max-time 5 globo-shop | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 9: The other cause -- pods that are not ready ────────────────────
+kubectl get endpointslices -l kubernetes.io/service-name=globo-shop -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{"  ready="}{.conditions.ready}{"\n"}{end}'
+kubectl get pods -l app=globo-shop #wait 8

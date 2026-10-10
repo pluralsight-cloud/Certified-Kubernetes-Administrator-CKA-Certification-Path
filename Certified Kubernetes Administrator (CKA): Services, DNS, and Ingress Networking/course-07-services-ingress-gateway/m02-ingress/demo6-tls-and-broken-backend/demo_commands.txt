@@ -1,0 +1,54 @@
+# ── Phase 1: A self-signed certificate, SAN included ───────────────────────
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 -keyout tls.key -out tls.crt -subj "/CN=catalog.globo.com" -addext "subjectAltName=DNS:catalog.globo.com"
+openssl x509 -in tls.crt -noout -subject -text | grep -E 'subject=|DNS:' #wait 10
+
+# ── Phase 2: Into the cluster as a kubernetes.io/tls Secret ────────────────
+kubectl -n globomantics create secret tls catalog-tls --cert=tls.crt --key=tls.key
+kubectl -n globomantics get secret catalog-tls -o jsonpath='type: {.type}{"\n"}'
+
+# ── Phase 3: Reference it from the Ingress ─────────────────────────────────
+cat globo-hosts-tls.yaml #wait 10
+kubectl apply -f globo-hosts-tls.yaml
+
+# ── Phase 4: HTTPS, with --resolve standing in for DNS ─────────────────────
+# -H "Host:" cannot work here: the handshake happens before any header is read, so the
+# certificate would be checked against the IP and fail.
+curl -sk --max-time 5 --resolve catalog.globo.com:30443:192.168.50.11 https://catalog.globo.com:30443/ | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+curl -vk --max-time 5 --resolve catalog.globo.com:30443:192.168.50.11 https://catalog.globo.com:30443/ 2>&1 | grep -E 'subject:|issuer:|SSL connection' #wait 10
+
+# ── Phase 5: Break the backend on purpose ──────────────────────────────────
+# Scale to zero rather than mis-name the Service. A Service that does not exist makes
+# Traefik drop the router entirely and the request falls through to its catch-all 404 --
+# a third meaning for a number this module has already given two. A Service that exists
+# with an empty EndpointSlice is the real 503, and it is the failure you actually meet.
+kubectl -n globomantics scale deploy/catalog --replicas=0
+kubectl -n globomantics wait --for=delete pod -l app=catalog --timeout=60s
+sleep 3
+curl -sk --max-time 5 -o /dev/null -w '  catalog -> %{http_code}\n' --resolve catalog.globo.com:30443:192.168.50.11 https://catalog.globo.com:30443/ #wait 8
+
+# ── Phase 6: Walk the chain -- describe, Service, EndpointSlice ────────────
+kubectl -n globomantics describe ingress globo-hosts | grep -A5 'Rules:'
+kubectl -n globomantics get svc catalog
+kubectl -n globomantics get endpointslices -l kubernetes.io/service-name=catalog
+kubectl -n globomantics get pods -l app=catalog
+
+# ── Phase 7: Put the pods back ─────────────────────────────────────────────
+kubectl -n globomantics scale deploy/catalog --replicas=2
+kubectl -n globomantics rollout status deploy/catalog --timeout=120s
+sleep 3
+curl -sk --max-time 5 -o /dev/null -w '  catalog -> %{http_code}\n' --resolve catalog.globo.com:30443:192.168.50.11 https://catalog.globo.com:30443/
+
+# ── Phase 8: Catch what nothing claimed ────────────────────────────────────
+# A SEPARATE, RULES-LESS Ingress. Traefik's kubernetesIngress provider builds a
+# catch-all router from spec.defaultBackend only when the Ingress carries no rules;
+# patched onto globo-hosts, which has three, the field is accepted by the API server
+# and then ignored by the controller -- the unmatched host still gets a bare 404.
+cat catch-all.yaml #wait 10
+kubectl apply -f catch-all.yaml
+
+# ── Phase 8b: The unmatched request lands on the portal ────────────────────
+curl -s --max-time 5 -H "Host: nothing.globo.com" http://192.168.50.11:30080/ | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 9: Closing state ─────────────────────────────────────────────────
+kubectl -n globomantics get ingress
+kubectl -n globomantics get secret catalog-tls #wait 8

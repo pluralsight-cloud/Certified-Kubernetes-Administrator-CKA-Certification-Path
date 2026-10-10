@@ -1,0 +1,85 @@
+# catalog v2 -- the catalog Deployment from m02-ingress/demo2-traefik-helm/globo-apps.yaml
+# under a new name, with APP_VERSION=v2, plus a ClusterIP Service in front of it.
+#
+# A manifest, not `kubectl create deployment`: the page names its own Pod from
+# Downward API env vars, and no imperative flag sets a fieldRef. Created that way
+# every replica renders "Pod: not-in-kubernetes" and the split count in Phase 5
+# cannot tell catalog from catalog-v2.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-v2
+  namespace: globomantics
+  labels:
+    app: catalog-v2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog-v2
+  template:
+    metadata:
+      labels:
+        app: catalog-v2
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: globo-shop
+          image: ghcr.io/timothywarner-org/globo-shop:v1
+          # IfNotPresent: on an Apple Silicon lab the side-loaded arm64 build must win.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: "catalog"
+            - name: APP_VERSION
+              value: "v2"
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: tmp,  mountPath: /tmp }
+            - { name: html, mountPath: /usr/share/nginx/html }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: html
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-v2
+  namespace: globomantics
+  labels:
+    app: catalog-v2
+spec:
+  type: ClusterIP
+  selector:
+    app: catalog-v2
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
