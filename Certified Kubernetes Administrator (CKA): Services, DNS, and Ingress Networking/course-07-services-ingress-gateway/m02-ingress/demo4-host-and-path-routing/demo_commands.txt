@@ -1,0 +1,40 @@
+# ── Phase 1: Host-based routing ────────────────────────────────────────────
+cat globo-hosts.yaml #wait 10
+kubectl apply -f globo-hosts.yaml
+
+# ── Phase 2: The controller claimed it -- CLASS and ADDRESS ────────────────
+kubectl -n globomantics get ingress
+
+# ── Phase 3: Three hostnames, one address, no DNS ──────────────────────────
+curl -s --max-time 5 -H "Host: catalog.globo.com" http://192.168.50.11:30080/ | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+curl -s --max-time 5 -H "Host: portal.globo.com" http://192.168.50.11:30080/ | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+curl -s --max-time 5 -o /dev/null -w '  unclaimed host -> %{http_code}\n' -H "Host: nothing.globo.com" http://192.168.50.11:30080/ #wait 8
+
+# ── Phase 3b: The same request, but let DNS do the work ────────────────────
+# The A record is pre-created on the network resolver (see Prerequisites). This is the
+# only beat in the module that does not carry -H "Host:" -- everything after it goes
+# back to the header so the demos survive a resolver that is not yours.
+dig +short catalog.globo.com
+curl -s --max-time 5 http://catalog.globo.com:30080/ | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/' #wait 10
+
+# ── Phase 4: Path-based routing under one host ─────────────────────────────
+cat globo-paths.yaml #wait 10
+kubectl apply -f globo-paths.yaml
+
+# ── Phase 5: The deliberate failure -- a 404 from the BACKEND ──────────────
+curl -s --max-time 5 -o /dev/null -w '  /catalog -> %{http_code}\n' -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog
+# Proves who answered: nginx from the backend, not Traefik's own 404 page.
+curl -s --max-time 5 -D - -o /dev/null -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog | grep -iE 'HTTP/|server:' #wait 10
+
+# ── Phase 6: The vendor-specific fix ───────────────────────────────────────
+cat strip-prefix.yaml #wait 10
+kubectl apply -f strip-prefix.yaml
+kubectl -n globomantics annotate ingress globo-paths traefik.ingress.kubernetes.io/router.middlewares=globomantics-strip-prefix@kubernetescrd
+
+# ── Phase 7: Both paths answer, each naming its own backend ────────────────
+curl -s --max-time 5 -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+curl -s --max-time 5 -H "Host: shop.globo.com" http://192.168.50.11:30080/api | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 8: Closing state ─────────────────────────────────────────────────
+kubectl -n globomantics get ingress
+kubectl -n globomantics get middleware #wait 8

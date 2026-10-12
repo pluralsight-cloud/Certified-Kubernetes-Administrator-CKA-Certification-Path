@@ -1,0 +1,106 @@
+# Setup for this demo: the state Demo 3 leaves behind -- the Globomantics parts
+# shop at three replicas with a ClusterIP Service in front. Apply it before
+# recording if you are shooting this demo standalone rather than straight after
+# Demo 3.
+#
+#   kubectl apply -f setup/globo-shop.yaml
+#
+# The Deployment below is byte-identical to Demo 3's, including the Downward API
+# block -- that is what lets the served page name its own Pod and node, which is
+# the only thing that makes "traffic is spreading" visible rather than asserted.
+# See ../../demo3-clusterip-and-dns/globo-shop-deployment.yaml for the full
+# rationale on why this is a manifest and not `kubectl create deployment`.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: globo-shop
+  labels:
+    app: globo-shop
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: globo-shop
+  template:
+    metadata:
+      labels:
+        app: globo-shop
+    spec:
+      # 5s instead of the default 30. A static nginx has nothing to drain, and
+      # on camera a 30-second delete is dead air.
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: globo-shop
+          image: ghcr.io/timothywarner-org/globo-shop:v1
+          # IfNotPresent so a node that already has the layer never contacts the
+          # registry. On an Apple Silicon lab this is load-bearing: the published
+          # ghcr package is amd64-only, so the arm64 build side-loaded by
+          # ../../../../shared/apps/globo-shop/load-image.sh must win. See that
+          # script's header.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: "lab"
+            # Downward API -- Kubernetes telling the Pod who it is. Without these
+            # four the served page cannot name itself and the demo has no proof.
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          # Readiness is what puts the Pod's IP into the EndpointSlice, which is
+          # the object Demo 6 diagnoses. Keep it.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            # A NUMBER, not `nginx`: with runAsNonRoot the kubelet has to verify
+            # the user is not root before starting the container, and it can only
+            # check a numeric UID. 101 is nginx in the alpine image.
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # readOnlyRootFilesystem means nginx can write nowhere, so hand it the
+          # two paths it needs. The entrypoint copies the pristine page from /opt
+          # into /usr/share/nginx/html and stamps the Downward API values in.
+          volumeMounts:
+            - { name: tmp,  mountPath: /tmp }
+            - { name: html, mountPath: /usr/share/nginx/html }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: html
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: globo-shop
+  labels:
+    app: globo-shop
+spec:
+  # ClusterIP is the DEFAULT. It is spelled out here only because this file has
+  # to reproduce what `kubectl expose` created on camera in Demo 3; in the demo
+  # itself the type is deliberately left off.
+  type: ClusterIP
+  selector:
+    app: globo-shop
+  ports:
+    - port: 80          # the Service's own port -- what other Pods dial
+      targetPort: 8080  # the CONTAINER's port; mixing these two up is the single
+                        # most common Service mistake on the exam

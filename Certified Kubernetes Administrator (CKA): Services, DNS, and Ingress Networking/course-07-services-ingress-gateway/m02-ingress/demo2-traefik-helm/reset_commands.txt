@@ -1,0 +1,9 @@
+# Cleanup: back to a cluster with no ingress controller and no backends.
+# Demo 2 installs Traefik and applies globo-apps.yaml on camera, so the reset
+# has to take both away again or the next take has nothing to show.
+# Idempotent: --ignore-not-found on both the release and the namespaces.
+helm uninstall traefik -n traefik --ignore-not-found
+kubectl delete namespace traefik --ignore-not-found --timeout=120s
+kubectl delete namespace globomantics --ignore-not-found --timeout=120s
+# Expect "No resources found" -- the chart's IngressClass goes with the release.
+kubectl get ingressclass

@@ -1,0 +1,4 @@
+# Cleanup: remove the parts shop, its Service, and the client pod
+kubectl delete deployment globo-shop --ignore-not-found --timeout=120s
+kubectl delete service globo-shop --ignore-not-found --timeout=60s
+kubectl delete pod curlpod --ignore-not-found --timeout=60s --grace-period=0 --force

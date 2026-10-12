@@ -1,0 +1,87 @@
+# Globomantics parts shop -- Deployment only. The Service is created live on
+# camera with `kubectl expose`, which is the exam-speed lesson of this demo.
+#
+# WHY a manifest instead of `kubectl create deployment`:
+# the page this app serves names the Pod and the node that answered, and that
+# is the whole proof that a Service load-balances. Those values arrive through
+# the Downward API as environment variables -- and `kubectl create deployment`
+# has no way to set a fieldRef (`kubectl set env` has no such flag either).
+# Created imperatively, every replica renders "Pod: not-in-kubernetes" and
+# "Node: localhost", so four curls in a row look identical and the demo proves
+# nothing. Verified on the lab cluster, not assumed.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: globo-shop
+  labels:
+    app: globo-shop
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: globo-shop
+  template:
+    metadata:
+      labels:
+        app: globo-shop
+    spec:
+      # 5s instead of the default 30. A static nginx has nothing to drain, and
+      # on camera a 30-second delete is dead air.
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: globo-shop
+          image: ghcr.io/timothywarner-org/globo-shop:v1
+          # IfNotPresent so a node that already has the layer never contacts the
+          # registry. On an Apple Silicon lab this is load-bearing: the published
+          # ghcr package is amd64-only, so the arm64 build side-loaded by
+          # ../../../shared/apps/globo-shop/load-image.sh must win. See that
+          # script's header.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: "lab"
+            # Downward API -- Kubernetes telling the Pod who it is. Without these
+            # four the served page cannot name itself and the demo has no proof.
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          # Readiness is what puts the Pod's IP into the EndpointSlice, which is
+          # the object Demo 6 diagnoses. Keep it.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            # A NUMBER, not `nginx`: with runAsNonRoot the kubelet has to verify
+            # the user is not root before starting the container, and it can only
+            # check a numeric UID. 101 is nginx in the alpine image.
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # readOnlyRootFilesystem means nginx can write nowhere, so hand it the
+          # two paths it needs. The entrypoint copies the pristine page from /opt
+          # into /usr/share/nginx/html and stamps the Downward API values in.
+          volumeMounts:
+            - { name: tmp,  mountPath: /tmp }
+            - { name: html, mountPath: /usr/share/nginx/html }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: html
+          emptyDir: {}

@@ -1,0 +1,20 @@
+# Cleanup: drop the certificate, the Secret and the catch-all Ingress, put the
+# catalog backend back to two replicas, and restore the plain-HTTP globo-hosts
+# so the TLS apply on camera is a real change.
+#
+# The Ingress is DELETED before it is re-applied, not just re-applied: a take
+# that stopped after Phase 3 leaves spec.tls in last-applied-configuration, and
+# a plain `kubectl apply` of the plain-HTTP file would then remove it correctly
+# -- but a take that was patched by hand would not. Deleting makes the starting
+# state independent of how far the previous take got.
+rm -f tls.crt tls.key
+kubectl -n globomantics delete secret catalog-tls --ignore-not-found
+kubectl -n globomantics delete ingress catch-all --ignore-not-found
+# Phase 5 scales catalog to zero. A take that stopped in the middle leaves it there.
+kubectl -n globomantics scale deploy/catalog --replicas=2
+kubectl -n globomantics rollout status deploy/catalog --timeout=120s
+kubectl -n globomantics delete ingress globo-hosts --ignore-not-found
+kubectl apply -f setup/globo-hosts.yaml
+# Expect empty -- no tls block, and the catch-all is gone.
+kubectl -n globomantics get ingress globo-hosts -o jsonpath='tls: {.spec.tls}{"\n"}'
+kubectl -n globomantics get ingress

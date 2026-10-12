@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: globo-hosts
+  namespace: globomantics
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - catalog.globo.com
+    secretName: catalog-tls
+  rules:
+  - host: catalog.globo.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: catalog
+            port:
+              number: 80
+  - host: portal.globo.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: portal
+            port:
+              number: 80
+  - host: api.globo.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api
+            port:
+              number: 80

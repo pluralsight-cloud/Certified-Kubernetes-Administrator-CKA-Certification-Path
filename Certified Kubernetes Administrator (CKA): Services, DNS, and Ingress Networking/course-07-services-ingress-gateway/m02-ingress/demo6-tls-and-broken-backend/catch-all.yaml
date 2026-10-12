@@ -1,0 +1,12 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: catch-all
+  namespace: globomantics
+spec:
+  ingressClassName: traefik
+  defaultBackend:
+    service:
+      name: portal
+      port:
+        number: 80

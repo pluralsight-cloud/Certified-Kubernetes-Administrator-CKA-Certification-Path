@@ -1,0 +1,293 @@
+# Globomantics backends -- three Deployments, three ClusterIP Services, one image.
+#
+# WHY a manifest instead of `kubectl create deployment` + `kubectl expose`:
+# the page this app serves names the Pod that answered, and that is the proof
+# every routing beat in this module leans on -- Demo 4 greps it twice for host
+# routing and twice more for path routing, and Demo 6 greps it through TLS.
+# Those values arrive through the Downward API as environment variables, and
+# `kubectl create deployment` has no way to set a fieldRef (`kubectl set env`
+# has no such flag either). Created imperatively, every replica renders
+# "Pod: not-in-kubernetes" and the routing beats prove nothing.
+#
+# Module 1 Demo 3 hit the identical wall and made the identical call -- see the
+# header of m01-service-types/demo3-clusterip-and-dns/globo-shop-deployment.yaml.
+# Verified on the lab cluster, not assumed.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: globomantics
+  labels:
+    app: catalog
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog
+  template:
+    metadata:
+      labels:
+        app: catalog
+    spec:
+      # 5s instead of the default 30. A static nginx has nothing to drain, and
+      # on camera a 30-second delete is dead air.
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: globo-shop
+          image: ghcr.io/timothywarner-org/globo-shop:v1
+          # IfNotPresent so a node that already has the layer never contacts the
+          # registry. On an Apple Silicon lab this is load-bearing: the published
+          # ghcr package is amd64-only, so the arm64 build side-loaded by
+          # ../../../shared/apps/globo-shop/load-image.sh must win.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: "catalog"
+            # Downward API -- Kubernetes telling the Pod who it is. Without these
+            # four the served page cannot name itself and the routing beats in
+            # Demos 4 and 6 have nothing to show.
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          # Readiness is what puts the Pod's IP into the EndpointSlice -- the
+          # object Demo 6 reads when the 503 has to name its own cause.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            # A NUMBER, not `nginx`: with runAsNonRoot the kubelet has to verify
+            # the user is not root before starting the container, and it can only
+            # check a numeric UID. 101 is nginx in the alpine image.
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # readOnlyRootFilesystem means nginx can write nowhere, so hand it the
+          # two paths it needs. The entrypoint copies the pristine page from /opt
+          # into /usr/share/nginx/html and stamps the Downward API values in.
+          volumeMounts:
+            - { name: tmp,  mountPath: /tmp }
+            - { name: html, mountPath: /usr/share/nginx/html }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: html
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog
+  namespace: globomantics
+  labels:
+    app: catalog
+spec:
+  type: ClusterIP
+  selector:
+    app: catalog
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal
+  namespace: globomantics
+  labels:
+    app: portal
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: portal
+  template:
+    metadata:
+      labels:
+        app: portal
+    spec:
+      # 5s instead of the default 30. A static nginx has nothing to drain, and
+      # on camera a 30-second delete is dead air.
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: globo-shop
+          image: ghcr.io/timothywarner-org/globo-shop:v1
+          # IfNotPresent so a node that already has the layer never contacts the
+          # registry. On an Apple Silicon lab this is load-bearing: the published
+          # ghcr package is amd64-only, so the arm64 build side-loaded by
+          # ../../../shared/apps/globo-shop/load-image.sh must win.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: "portal"
+            # Downward API -- Kubernetes telling the Pod who it is. Without these
+            # four the served page cannot name itself and the routing beats in
+            # Demos 4 and 6 have nothing to show.
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          # Readiness is what puts the Pod's IP into the EndpointSlice -- the
+          # object Demo 6 reads when the 503 has to name its own cause.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            # A NUMBER, not `nginx`: with runAsNonRoot the kubelet has to verify
+            # the user is not root before starting the container, and it can only
+            # check a numeric UID. 101 is nginx in the alpine image.
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # readOnlyRootFilesystem means nginx can write nowhere, so hand it the
+          # two paths it needs. The entrypoint copies the pristine page from /opt
+          # into /usr/share/nginx/html and stamps the Downward API values in.
+          volumeMounts:
+            - { name: tmp,  mountPath: /tmp }
+            - { name: html, mountPath: /usr/share/nginx/html }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: html
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal
+  namespace: globomantics
+  labels:
+    app: portal
+spec:
+  type: ClusterIP
+  selector:
+    app: portal
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: globomantics
+  labels:
+    app: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      # 5s instead of the default 30. A static nginx has nothing to drain, and
+      # on camera a 30-second delete is dead air.
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: globo-shop
+          image: ghcr.io/timothywarner-org/globo-shop:v1
+          # IfNotPresent so a node that already has the layer never contacts the
+          # registry. On an Apple Silicon lab this is load-bearing: the published
+          # ghcr package is amd64-only, so the arm64 build side-loaded by
+          # ../../../shared/apps/globo-shop/load-image.sh must win.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: "api"
+            # Downward API -- Kubernetes telling the Pod who it is. Without these
+            # four the served page cannot name itself and the routing beats in
+            # Demos 4 and 6 have nothing to show.
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          # Readiness is what puts the Pod's IP into the EndpointSlice -- the
+          # object Demo 6 reads when the 503 has to name its own cause.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            # A NUMBER, not `nginx`: with runAsNonRoot the kubelet has to verify
+            # the user is not root before starting the container, and it can only
+            # check a numeric UID. 101 is nginx in the alpine image.
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # readOnlyRootFilesystem means nginx can write nowhere, so hand it the
+          # two paths it needs. The entrypoint copies the pristine page from /opt
+          # into /usr/share/nginx/html and stamps the Downward API values in.
+          volumeMounts:
+            - { name: tmp,  mountPath: /tmp }
+            - { name: html, mountPath: /usr/share/nginx/html }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: html
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: globomantics
+  labels:
+    app: api
+spec:
+  type: ClusterIP
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

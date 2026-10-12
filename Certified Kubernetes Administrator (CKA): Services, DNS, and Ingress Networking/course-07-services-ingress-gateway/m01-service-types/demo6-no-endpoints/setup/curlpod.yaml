@@ -1,0 +1,41 @@
+# A long-lived client Pod for the probes in this demo.
+#
+# It is setup rather than a demo beat because the narration never introduces it --
+# by this point in the module Demo 3 has already created one on camera. Shooting
+# Demo 6 standalone, apply this so `kubectl exec curlpod` just works.
+#
+# Long-lived on purpose: `kubectl run --rm -it` per probe costs five to ten seconds
+# of Pod startup each, and the same curl runs four times here. `kubectl exec` against
+# one sleeping Pod is instant, and unlike an interactive shell it can be driven by
+# the recording automation.
+#
+# DELIBERATELY MINIMAL, and the container name is NOT arbitrary. This spec is
+# field-for-field what `kubectl run curlpod --image=curlimages/curl
+# --restart=Never -- sleep 3600` produces, which is how Demo 3 creates it on
+# camera. Pods are almost entirely immutable, so if the two specs disagree,
+# `kubectl apply -f setup/` onto a cluster where Demo 3 already ran dies with:
+#
+#   The Pod "curlpod" is invalid: spec.containers: Forbidden:
+#   pod updates may not add or remove containers
+#
+# That happened three times while getting this right: with the container named
+# `curl` (kubectl run names it after the Pod), with a non-default
+# terminationGracePeriodSeconds (also immutable), and with `command:` instead of
+# `args:`. Adding resource requests would do it again. Keep this file matching the
+# imperative form so both routes converge on one object and the apply is a no-op
+# either way. Verified in both directions on the lab.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: curlpod
+  labels:
+    run: curlpod
+spec:
+  containers:
+    - name: curlpod
+      image: curlimages/curl
+      # ARGS, not command. `kubectl run ... -- sleep 3600` puts the trailing
+      # words in args and leaves command null; using `command:` here makes the
+      # two specs differ and the apply is rejected. kubectl prints the diff.
+      args: ["sleep", "3600"]
+  restartPolicy: Never

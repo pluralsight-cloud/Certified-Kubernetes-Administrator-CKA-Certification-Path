@@ -1,0 +1,8 @@
+# Cleanup: no catalog-v2, and catalog-route back to Demo 4's single rule, so the
+# header and split applies on camera are real changes.
+kubectl -n globomantics delete deploy catalog-v2 --ignore-not-found --timeout=60s
+kubectl -n globomantics delete svc catalog-v2 --ignore-not-found
+kubectl apply -f setup/catalog-route.yaml
+sleep 3
+# Expect a catalog-... pod, never catalog-v2-...
+curl -s --max-time 5 -H "Host: shop.globo.com" http://192.168.50.11:30080/catalog | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'

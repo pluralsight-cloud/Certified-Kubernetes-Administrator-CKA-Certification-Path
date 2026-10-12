@@ -1,0 +1,25 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: globo-gateway
+  namespace: globomantics
+spec:
+  gatewayClassName: traefik
+  listeners:
+  - name: web
+    protocol: HTTP
+    port: 8000
+    allowedRoutes:
+      namespaces:
+        from: Same
+  - name: websecure
+    protocol: HTTPS
+    port: 8443
+    hostname: catalog.globo.com
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: catalog-tls
+    allowedRoutes:
+      namespaces:
+        from: Same

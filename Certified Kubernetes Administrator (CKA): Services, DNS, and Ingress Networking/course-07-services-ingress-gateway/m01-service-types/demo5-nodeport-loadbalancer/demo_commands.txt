@@ -1,0 +1,40 @@
+# ── Phase 1: Context and starting state ────────────────────────────────────
+kubectl config current-context
+kubectl get svc globo-shop
+kubectl get pods -o wide -l app=globo-shop
+
+# ── Phase 2: ClusterIP becomes NodePort ────────────────────────────────────
+kubectl patch svc globo-shop -p '{"spec":{"type":"NodePort"}}'
+kubectl get svc globo-shop
+
+# ── Phase 3: Read the port back out ────────────────────────────────────────
+NODEPORT=$(kubectl get svc globo-shop -o jsonpath='{.spec.ports[0].nodePort}')
+echo "NodePort is $NODEPORT  (allocated from 30000-32767)"
+
+# ── Phase 4: Every node, not one -- these run on the HOST ──────────────────
+curl -s --max-time 5 192.168.50.11:$NODEPORT | grep -E 'f-pod|f-node' | sed -E 's/.*">([^<]*).*/  \1/'
+curl -s --max-time 5 192.168.50.12:$NODEPORT | grep -E 'f-pod|f-node' | sed -E 's/.*">([^<]*).*/  \1/'
+curl -s --max-time 5 192.168.50.10:$NODEPORT | grep -E 'f-pod|f-node' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 5: Entered here, served there ────────────────────────────────────
+for ip in 192.168.50.10 192.168.50.11 192.168.50.12; do printf '%-16s -> ' "$ip"; curl -s --max-time 5 $ip:$NODEPORT | grep 'f-node' | sed -E 's/.*">([^<]*).*/\1/'; done
+
+# ── Phase 6: Ask for what this cluster cannot give ─────────────────────────
+kubectl patch svc globo-shop -p '{"spec":{"type":"LoadBalancer"}}'
+kubectl get svc globo-shop
+kubectl describe svc globo-shop | tail -12
+
+# ── Phase 8: The layers underneath still work ──────────────────────────────
+kubectl get svc globo-shop -o jsonpath='type={.spec.type}{"  clusterIP="}{.spec.clusterIP}{"  nodePort="}{.spec.ports[0].nodePort}{"\n"}'
+curl -s --max-time 5 192.168.50.11:$NODEPORT | grep 'f-pod' | sed -E 's/.*">([^<]*).*/  \1/'
+
+# ── Phase 9: Back to ClusterIP ─────────────────────────────────────────────
+kubectl patch svc globo-shop -p '{"spec":{"type":"ClusterIP"}}'
+kubectl get svc globo-shop
+
+# ── Phase 10: The node port was released ───────────────────────────────────
+kubectl get svc globo-shop -o jsonpath='type={.spec.type}{"  clusterIP="}{.spec.clusterIP}{"  nodePort="}{.spec.ports[0].nodePort}{"\n"}'
+# give kube-proxy a moment to withdraw the rule -- without this the curl below
+# can still get a 200 and contradict the narration
+sleep 3
+curl -s --max-time 5 192.168.50.11:$NODEPORT
