@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: globo-scratch
+  namespace: globo-storage
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "tail -f /dev/null; echo exiting"]
+      volumeMounts:
+        - name: scratch
+          mountPath: /data
+  volumes:
+    - name: scratch
+      emptyDir: {}

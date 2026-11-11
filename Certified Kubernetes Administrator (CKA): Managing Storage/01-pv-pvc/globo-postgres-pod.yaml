@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: globo-postgres
+  namespace: globo-storage
+spec:
+  # A hostPath volume lives on one node, so the pod has to be pinned to it.
+  nodeSelector:
+    kubernetes.io/hostname: globo-worker
+  initContainers:
+    # hostPath hands the pod a root-owned directory and ignores fsGroup,
+    # so postgres (uid 70) cannot write to it until ownership is fixed.
+    - name: fix-permissions
+      image: busybox:1.36
+      command: ["sh", "-c", "chown -R 70:70 /var/lib/postgresql/data"]
+      volumeMounts:
+        - name: catalog
+          mountPath: /var/lib/postgresql/data
+  containers:
+    - name: postgres
+      image: postgres:17-alpine
+      env:
+        - name: POSTGRES_PASSWORD
+          value: globopass
+        - name: POSTGRES_DB
+          value: catalog
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+      volumeMounts:
+        - name: catalog
+          mountPath: /var/lib/postgresql/data
+  volumes:
+    - name: catalog
+      persistentVolumeClaim:
+        claimName: globo-catalog-pvc

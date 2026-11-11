@@ -1,0 +1,14 @@
+# Asks for ReadWriteMany; the only class-less volume, globo-reports-pv, offers ReadWriteOnce.
+# Stays Pending on an access mode mismatch, not a capacity one.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: globo-shared-reports-pvc
+  namespace: globo-storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 1Gi

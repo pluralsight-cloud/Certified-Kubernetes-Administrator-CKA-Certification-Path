@@ -1,0 +1,12 @@
+# Omits storageClassName entirely. The DefaultStorageClass admission plugin injects the cluster default, so this claim never sees the class-less PVs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: globo-noclass-pvc
+  namespace: globo-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

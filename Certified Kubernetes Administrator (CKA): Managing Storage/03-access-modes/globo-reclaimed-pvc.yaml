@@ -1,0 +1,15 @@
+# Binds to a specific reclaimed volume by name rather than letting the class provision a new one.
+# volumeName is what makes the match deterministic, so a claim with a new name still gets the retained data.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: globo-reclaimed-pvc
+  namespace: globo-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-local
+  volumeName: REPLACE_WITH_RETAINED_PV_NAME
+  resources:
+    requests:
+      storage: 1Gi

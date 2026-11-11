@@ -1,0 +1,12 @@
+# No storageClassName, so the cluster default class is injected on creation.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: globo-default-pvc
+  namespace: globo-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: globo-redis
+  namespace: globo-storage
+spec:
+  clusterIP: None
+  selector:
+    app: globo-redis
+  ports:
+    - port: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: globo-redis
+  namespace: globo-storage
+spec:
+  serviceName: globo-redis
+  replicas: 3
+  selector:
+    matchLabels:
+      app: globo-redis
+  template:
+    metadata:
+      labels:
+        app: globo-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 1Gi

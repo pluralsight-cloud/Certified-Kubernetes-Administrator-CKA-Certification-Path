@@ -1,0 +1,20 @@
+# globo-kind-cluster.yaml
+# One-time cluster setup for this course.
+#
+#   kind create cluster --config globo-kind-cluster.yaml
+#
+# Produces a 3-node cluster (1 control plane + 2 workers):
+#   globo-control-plane
+#   globo-worker
+#   globo-worker2
+#
+# Tear down when finished:
+#   kind delete cluster --name globo
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: globo
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
