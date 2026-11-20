@@ -47,6 +47,8 @@ The `(default)` marker appears next to `local-path`.
 
 The demos are cumulative, so work through the folders in order. Each file is named after the object it creates.
 
+Each folder also has a `COMMANDS.md` that lists every command from that module's demos in the order the videos run them, with what each one should show, so you can copy and paste as you follow along: [01-pv-pvc](01-pv-pvc/COMMANDS.md), [02-storage-classes](02-storage-classes/COMMANDS.md), [03-access-modes](03-access-modes/COMMANDS.md).
+
 | Folder | Module | What it holds |
 | --- | --- | --- |
 | `01-pv-pvc/` | Volumes, PersistentVolumes, and PersistentVolumeClaims | Cluster config, the emptyDir pod, static PVs and claims, the PostgreSQL pod |
